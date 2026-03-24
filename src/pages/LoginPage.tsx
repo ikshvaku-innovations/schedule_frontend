@@ -1,0 +1,91 @@
+import { useState, type FormEvent } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
+
+export default function LoginPage() {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const navigate = useNavigate();
+  const { login } = useAuth();
+
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setIsLoading(true);
+
+    const result = await login(email, password);
+
+    if (result.error) {
+      setError(result.error);
+      setIsLoading(false);
+    } else {
+      navigate('/dashboard');
+    }
+  };
+
+  return (
+    <div className="login-container">
+      <div className="login-card">
+        <div className="login-header">
+          <div className="login-logo">
+            <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+              <rect width="48" height="48" rx="12" fill="#1a73e8" />
+              <path d="M14 24L22 32L34 16" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </div>
+          <h1 className="login-title">Yudha Vivas</h1>
+          <p className="login-subtitle">Sign in to manage your sessions</p>
+        </div>
+
+        <form onSubmit={handleSubmit} className="login-form">
+          {error && (
+            <div className="login-error">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M8 1a7 7 0 100 14A7 7 0 008 1zm0 10.5a.75.75 0 110-1.5.75.75 0 010 1.5zM8.75 5v3.5a.75.75 0 01-1.5 0V5a.75.75 0 011.5 0z" />
+              </svg>
+              <span>{error}</span>
+            </div>
+          )}
+
+          <div className="input-group">
+            <label htmlFor="email">Email</label>
+            <input
+              id="email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="Enter your email"
+              required
+              autoFocus
+            />
+          </div>
+
+          <div className="input-group">
+            <label htmlFor="password">Password</label>
+            <input
+              id="password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Enter your password"
+              required
+            />
+          </div>
+
+          <button type="submit" className="btn-primary login-btn" disabled={isLoading}>
+            {isLoading ? (
+              <span className="btn-loading">
+                <span className="spinner"></span>
+                Signing in...
+              </span>
+            ) : (
+              'Sign in'
+            )}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
