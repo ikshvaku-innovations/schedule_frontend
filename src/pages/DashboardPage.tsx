@@ -277,7 +277,7 @@ export default function DashboardPage() {
                               onClick={() => handleAttend(job)}
                               disabled={job.status === 'active' && !job.session_id}
                             >
-                              Attend
+                              Attempt
                             </button>
                           )}
                           <button
