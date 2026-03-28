@@ -15,6 +15,17 @@ export default function LoginPage() {
     setError('');
     setIsLoading(true);
 
+    // Professor login check
+    if (
+      email.trim().toLowerCase() === 'madhuri.bhalekar@mitwpu.edu.in' &&
+      password === 'madhuri@yudha'
+    ) {
+      localStorage.setItem('prof_session', JSON.stringify({ email, role: 'professor' }));
+      setIsLoading(false);
+      navigate('/profdashboard');
+      return;
+    }
+
     const result = await login(email, password);
 
     if (result.error) {
