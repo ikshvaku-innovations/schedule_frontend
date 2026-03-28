@@ -40,6 +40,7 @@ jobs:
           VITE_GCS_CLIENT_EMAIL: ${{ secrets.VITE_GCS_CLIENT_EMAIL }}
           VITE_GCS_PRIVATE_KEY: ${{ secrets.VITE_GCS_PRIVATE_KEY }}
           VITE_GCS_PROJECT_ID: ${{ secrets.VITE_GCS_PROJECT_ID }}
+          ##newwww
 
   close_pull_request_job:
     if: github.event_name == 'pull_request' && github.event.action == 'closed'
