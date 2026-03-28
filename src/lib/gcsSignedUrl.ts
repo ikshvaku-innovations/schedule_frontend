@@ -3,7 +3,6 @@
  * No Supabase edge functions needed.
  */
 
-const BUCKET_NAME = 'yudha-vivas';
 const GCS_BASE_URL = 'https://storage.googleapis.com';
 
 interface GCSCredentials {
@@ -11,26 +10,20 @@ interface GCSCredentials {
   private_key: string;
 }
 
+function getBucketName(): string {
+  return import.meta.env.VITE_GCS_BUCKET_NAME as string || 'yudha-vivas';
+}
+
 function getCredentials(): GCSCredentials | null {
-  try {
-    const credentialsJson = import.meta.env.VITE_GCS_CREDENTIALS_JSON as string;
-    if (!credentialsJson) {
-      console.warn('VITE_GCS_CREDENTIALS_JSON not set');
-      return null;
-    }
-    const parsed = JSON.parse(credentialsJson);
-    if (!parsed.client_email || !parsed.private_key) {
-      console.warn('Invalid GCS credentials format');
-      return null;
-    }
-    return {
-      client_email: parsed.client_email,
-      private_key: parsed.private_key,
-    };
-  } catch (err) {
-    console.warn('Failed to parse GCS credentials:', err);
+  const client_email = import.meta.env.VITE_GCS_CLIENT_EMAIL as string;
+  const private_key = import.meta.env.VITE_GCS_PRIVATE_KEY as string;
+
+  if (!client_email || !private_key) {
+    console.warn('VITE_GCS_CLIENT_EMAIL or VITE_GCS_PRIVATE_KEY not set');
     return null;
   }
+
+  return { client_email, private_key };
 }
 
 async function importPrivateKey(pem: string): Promise<CryptoKey> {
@@ -69,7 +62,7 @@ async function generateSignedUrl(
   }
 
   const expiration = Math.floor(Date.now() / 1000) + expirationMinutes * 60;
-  const objectPath = `/${BUCKET_NAME}/${filename}`;
+  const objectPath = `/${getBucketName()}/${filename}`;
 
   // Create the string to sign (V2 signing)
   const stringToSign = [
