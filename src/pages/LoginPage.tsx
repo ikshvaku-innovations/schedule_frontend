@@ -26,6 +26,18 @@ export default function LoginPage() {
       return;
     }
 
+    const normalizedPassword = password.replace(/\s+/g, '');
+
+    if (
+      email.trim().toLowerCase() === 'shamla.mantri@mitwpu.edu.in' &&
+      (password === 'shamla@yudha' || normalizedPassword === 'shamla@yudha')
+    ) {
+      localStorage.setItem('prof_session', JSON.stringify({ email, role: 'professor' }));
+      setIsLoading(false);
+      navigate('/profdashboard');
+      return;
+    }
+
     const result = await login(email, password);
 
     if (result.error) {

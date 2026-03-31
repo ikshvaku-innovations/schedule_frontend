@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient';
 import { evaluateStudent, getStoredEvaluation } from '../lib/vivaEvaluation';
@@ -20,14 +20,27 @@ export default function ProfDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [evaluatingIds, setEvaluatingIds] = useState<Set<string>>(new Set());
 
+  const profInfo = useMemo(() => {
+    const sessionStr = localStorage.getItem('prof_session');
+    if (sessionStr) {
+      try {
+        const session = JSON.parse(sessionStr);
+        if (session.email.toLowerCase() === 'shamla.mantri@mitwpu.edu.in') {
+          return { name: 'Prof. Shamla Mantri', title: 'ITW LCA2 Viva', initial: 'S' };
+        }
+      } catch (e) {}
+    }
+    return { name: 'Prof. Madhuri Bhalekar', title: 'SSOM CCA4 Viva', initial: 'M' };
+  }, []);
+
   const fetchStudents = useCallback(async () => {
     setLoading(true);
 
-    // 1. Get jobs with position_name = 'SSOM CCA4 Viva'
+    // 1. Get jobs with position_name
     const { data: jobs, error: jobsError } = await supabase
       .from('jobs')
       .select('id, user_id, position_name')
-      .eq('position_name', 'SSOM CCA4 Viva');
+      .eq('position_name', profInfo.title);
 
     if (jobsError || !jobs || jobs.length === 0) {
       console.error('Error fetching jobs:', jobsError);
@@ -85,7 +98,7 @@ export default function ProfDashboardPage() {
 
     setStudents(rows);
     setLoading(false);
-  }, []);
+  }, [profInfo.title]);
 
   useEffect(() => {
     fetchStudents();
@@ -152,8 +165,8 @@ export default function ProfDashboardPage() {
         </div>
         <div className="header-right">
           <div className="user-info">
-            <div className="user-avatar">M</div>
-            <span className="user-name">Prof. Madhuri Bhalekar</span>
+            <div className="user-avatar">{profInfo.initial}</div>
+            <span className="user-name">{profInfo.name}</span>
           </div>
           <button className="btn-outline" onClick={handleLogout}>
             Sign out
@@ -163,7 +176,7 @@ export default function ProfDashboardPage() {
 
       <main className="dashboard-main">
         <div className="dashboard-title-row">
-          <h2 className="dashboard-section-title">SSOM CCA4 Viva — Results Report</h2>
+          <h2 className="dashboard-section-title">{profInfo.title} — Results Report</h2>
           <button className="btn-icon" onClick={fetchStudents} title="Refresh">
             <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
               <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" />
@@ -185,7 +198,7 @@ export default function ProfDashboardPage() {
               <circle cx="24" cy="18" r="2" fill="#1a73e8" />
               <circle cx="32" cy="18" r="2" fill="#1a73e8" />
             </svg>
-            <p>No students found for SSOM CCA4 Viva</p>
+            <p>No students found for {profInfo.title}</p>
           </div>
         ) : (
           <div className="table-wrapper">
