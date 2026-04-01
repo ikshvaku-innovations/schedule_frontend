@@ -220,13 +220,16 @@ export async function getStoredEvaluation(
     .eq('id', userId)
     .single();
 
+  // Always generate a fresh signed URL instead of using the stored (potentially expired) one
+  const freshVideoLink = await getVideoSignedUrl(jobId, userId);
+
   return {
     evaluation: {
       summary: data.evaluation_data.summary || '',
       questions: data.evaluation_data.questions,
       totalMarks: data.ai_marks || 0,
       maxMarks: 20,
-      videoLink: data.video_link || null,
+      videoLink: freshVideoLink,
       videoInsights: data.video_insights || {},
       studentName: userData?.name || data.evaluation_data.studentName || '',
       studentEmail: userData?.email || data.evaluation_data.studentEmail || '',
