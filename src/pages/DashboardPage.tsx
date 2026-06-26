@@ -36,7 +36,7 @@ function computeStatus(job: Job, schedule: Schedule | null, now: Date, vivaEndDa
 
   // In JS, appending +05:30 to ISO string parses it as IST
   const start = new Date(`${dateStr}T${startParts[0]}:${startParts[1]}:00+05:30`);
-  
+
   // Calculate end time by adding job.duration minutes to start time
   const end = new Date(start.getTime() + (job.duration * 60 * 1000));
 
@@ -241,7 +241,7 @@ export default function DashboardPage() {
 
     if (job.session_id) {
       window.open(
-        `https://interview.shauryalabs.in/?session=${job.session_id}`,
+        `https://vivawindow.yudha.in/?session=${job.session_id}`,
         '_blank'
       );
     }
@@ -278,7 +278,7 @@ export default function DashboardPage() {
             <span className="user-name">{user.name}</span>
           </div>
           <button className="btn-outline" onClick={handleLogout}>
-             Sign out
+            Sign out
           </button>
         </div>
       </header>
