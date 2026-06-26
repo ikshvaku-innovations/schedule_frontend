@@ -72,8 +72,8 @@ export async function evaluateStudent(
 ): Promise<EvaluationResult | null> {
   // 1. Fetch user info
   const { data: userData } = await supabase
-    .from('users')
-    .select('name, email')
+    .from('users_login')
+    .select('name, email_id')
     .eq('id', userId)
     .single();
 
@@ -158,7 +158,7 @@ Respond ONLY with a JSON object in this exact format (no other text, no markdown
       videoLink,
       videoInsights,
       studentName: userData.name,
-      studentEmail: userData.email,
+      studentEmail: userData.email_id,
     };
 
     // 5. Store in viva_evaluations table
@@ -167,7 +167,7 @@ Respond ONLY with a JSON object in this exact format (no other text, no markdown
       questions: evaluationResult.questions,
       totalQuestions: parsed.questions.length,
       studentName: userData.name,
-      studentEmail: userData.email,
+      studentEmail: userData.email_id,
     };
 
     const { error: upsertError } = await supabase
@@ -215,8 +215,8 @@ export async function getStoredEvaluation(
 
   // Fetch user data
   const { data: userData } = await supabase
-    .from('users')
-    .select('name, email')
+    .from('users_login')
+    .select('name, email_id')
     .eq('id', userId)
     .single();
 
@@ -232,7 +232,7 @@ export async function getStoredEvaluation(
       videoLink: freshVideoLink,
       videoInsights: data.video_insights || {},
       studentName: userData?.name || data.evaluation_data.studentName || '',
-      studentEmail: userData?.email || data.evaluation_data.studentEmail || '',
+      studentEmail: userData?.email_id || data.evaluation_data.studentEmail || '',
     },
     finalMarks: data.final_marks,
     professorFeedback: data.professor_feedback,

@@ -2,6 +2,8 @@ import { useEffect, useState, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import { getStoredEvaluation, updateProfessorMarks } from '../lib/vivaEvaluation';
 import type { EvaluationResult } from '../lib/vivaEvaluation';
+import ThemeToggle from '../components/ThemeToggle';
+
 
 export default function ReportPage() {
   const { jobId, userId } = useParams<{ jobId: string; userId: string }>();
@@ -73,14 +75,12 @@ export default function ReportPage() {
       <header className="report-header">
         <div className="header-left">
           <div className="header-logo">
-            <svg width="32" height="32" viewBox="0 0 48 48" fill="none">
-              <rect width="48" height="48" rx="12" fill="#1a73e8" />
-              <path d="M14 24L22 32L34 16" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
+            <img src="/YudhaLogo.png" alt="Yudha Logo" width="32" height="32" style={{ borderRadius: '8px', objectFit: 'contain' }} />
           </div>
           <h1 className="header-title">Viva Evaluation Report</h1>
         </div>
-        <div className="header-right">
+        <div className="header-right" style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <ThemeToggle />
           <span className="report-position-badge">SSOM CCA4 Viva</span>
         </div>
       </header>
@@ -167,8 +167,8 @@ export default function ReportPage() {
           ) : (
             <div className="no-video-placeholder">
               <svg width="48" height="48" viewBox="0 0 48 48" fill="none" opacity="0.3">
-                <rect x="4" y="8" width="40" height="32" rx="4" stroke="#1a73e8" strokeWidth="2" />
-                <path d="M20 18L32 24L20 30V18Z" fill="#1a73e8" opacity="0.3" />
+                <rect x="4" y="8" width="40" height="32" rx="4" stroke="hsl(var(--primary))" strokeWidth="2" />
+                <path d="M20 18L32 24L20 30V18Z" fill="hsl(var(--primary))" opacity="0.3" />
               </svg>
               <p>Video unavailable</p>
             </div>
@@ -182,7 +182,7 @@ export default function ReportPage() {
         {evaluation.summary && (
           <div className="performance-summary-card">
             <div className="performance-summary-header">
-              <svg width="24" height="24" viewBox="0 0 20 20" fill="currentColor" style={{ color: 'var(--blue-600)' }}>
+              <svg width="24" height="24" viewBox="0 0 20 20" fill="currentColor" style={{ color: 'hsl(var(--primary))' }}>
                 <path fillRule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
               </svg>
               <h2>Performance Summary</h2>
@@ -196,7 +196,7 @@ export default function ReportPage() {
 
         {/* Question-by-Question Analysis */}
         <h2 className="analysis-title">
-          <svg width="22" height="22" viewBox="0 0 20 20" fill="currentColor" style={{ color: 'var(--blue-600)' }}>
+          <svg width="22" height="22" viewBox="0 0 20 20" fill="currentColor" style={{ color: 'hsl(var(--primary))' }}>
             <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-3a1 1 0 00-.867.5 1 1 0 11-1.731-1A3 3 0 0114 8a3.001 3.001 0 01-2 2.83V11a1 1 0 11-2 0v-1a1 1 0 011-1 1 1 0 100-2zm0 8a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
           </svg>
           Question-by-Question Analysis
@@ -297,8 +297,8 @@ export default function ReportPage() {
                             <div className="category-header">
                               <h4>{categoryName}</h4>
                               <div className="category-score" style={{ 
-                                backgroundColor: categoryData.score >= 80 ? '#e6f4ea' : categoryData.score >= 60 ? '#fef7e0' : '#fce8e6',
-                                color: categoryData.score >= 80 ? '#1e8e3e' : categoryData.score >= 60 ? '#f29900' : '#d93025'
+                                backgroundColor: categoryData.score >= 80 ? 'hsl(142 70% 45% / 0.1)' : categoryData.score >= 60 ? 'hsl(45 90% 45% / 0.1)' : 'hsl(0 84% 60% / 0.1)',
+                                color: categoryData.score >= 80 ? 'hsl(142 70% 45%)' : categoryData.score >= 60 ? 'hsl(45 90% 45%)' : 'hsl(0 84% 60%)'
                               }}>
                                 {categoryData.score}
                               </div>
@@ -316,8 +316,8 @@ export default function ReportPage() {
                 ) : (
                   <div className="no-violations">
                     <svg width="40" height="40" viewBox="0 0 40 40" fill="none" opacity="0.3">
-                      <path fillRule="evenodd" clipRule="evenodd" d="M20 36C28.8366 36 36 28.8366 36 20C36 11.1634 28.8366 4 20 4C11.1634 4 4 11.1634 4 20C4 28.8366 11.1634 36 20 36ZM20 32C26.6274 32 32 26.6274 32 20C32 13.3726 26.6274 8 20 8C13.3726 8 8 13.3726 8 20C8 26.6274 13.3726 32 20 32Z" fill="var(--blue-600)"/>
-                      <path d="M20 12V20L25.6569 25.6569" stroke="var(--blue-600)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
+                      <path fillRule="evenodd" clipRule="evenodd" d="M20 36C28.8366 36 36 28.8366 36 20C36 11.1634 28.8366 4 20 4C11.1634 4 4 11.1634 4 20C4 28.8366 11.1634 36 20 36ZM20 32C26.6274 32 32 26.6274 32 20C32 13.3726 26.6274 8 20 8C13.3726 8 8 13.3726 8 20C8 26.6274 13.3726 32 20 32Z" fill="hsl(var(--primary))"/>
+                      <path d="M20 12V20L25.6569 25.6569" stroke="hsl(var(--primary))" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
                     </svg>
                     <p>Analysis in progress or unavailable</p>
                   </div>

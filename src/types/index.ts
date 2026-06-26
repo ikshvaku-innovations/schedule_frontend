@@ -1,12 +1,14 @@
 export interface User {
   id: string;
   name: string;
-  email: string;
+  email: string; // maps to email_id in users_login table
+  org_id: string | null;
+  department: string | null;
+  course: string | null;
+  division: string | null;
+  prn: string | null;
   created_at: string;
-  resume_summary: string | null;
-  MaxConsumption: number;
-  ActualConsumption: number;
-  plan: 'starter' | 'pro' | 'elite';
+  updated_at: string;
 }
 
 export interface Job {
@@ -22,6 +24,8 @@ export interface Job {
   jd_summary: string | null;
   is_hr_interview: boolean;
   has_video_insights: boolean;
+  no_of_questions: string | null;
+  viva_id: string | null;
 }
 
 export interface Schedule {
@@ -90,4 +94,6 @@ export interface JobWithSchedule extends Job {
   schedule: Schedule | null;
   status: JobStatus;
   session_id: string | null;
+  viva_end_date_and_time?: string | null;
 }
+

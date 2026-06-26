@@ -30,9 +30,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = async (email: string, password: string): Promise<{ error: string | null }> => {
     try {
       const { data, error } = await supabase
-        .from('users')
+        .from('users_login')
         .select('*')
-        .eq('email', email)
+        .eq('email_id', email)
         .eq('password', password)
         .single();
 
@@ -43,12 +43,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const userData: User = {
         id: data.id,
         name: data.name,
-        email: data.email,
+        email: data.email_id,
+        org_id: data.org_id,
+        department: data.department,
+        course: data.course,
+        division: data.division,
+        prn: data.prn,
         created_at: data.created_at,
-        resume_summary: data.resume_summary,
-        MaxConsumption: data.MaxConsumption,
-        ActualConsumption: data.ActualConsumption,
-        plan: data.plan,
+        updated_at: data.updated_at,
       };
 
       setUser(userData);

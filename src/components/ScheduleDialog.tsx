@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabaseClient';
-import type { JobWithSchedule, SessionWindow } from '../types';
+import type { JobWithSchedule } from '../types';
+import { generateAndStoreQuestions } from '../lib/questionGeneration';
+import GenerationProgressDialog from './GenerationProgressDialog';
+import type { Stage } from './GenerationProgressDialog';
 
 interface ScheduleDialogProps {
   job: JobWithSchedule;
@@ -35,7 +38,69 @@ export default function ScheduleDialog({ job, userId, istNow, onClose, onSaved }
   const [selectedTime, setSelectedTime] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [savingStatus, setSavingStatus] = useState('');
   const [error, setError] = useState('');
+
+  // Generation progress states
+  const [isProgressOpen, setIsProgressOpen] = useState(false);
+  const [progressPercent, setProgressPercent] = useState(0);
+  const [stages, setStages] = useState<Stage[]>([
+    {
+      id: 0,
+      title: 'Setting the foundation',
+      subtitle: {
+        incomplete: 'Pending',
+        in_progress: 'Checking database...',
+        completed: 'Completed',
+        failed: 'Verification failed',
+      },
+      status: 'incomplete',
+    },
+    {
+      id: 1,
+      title: 'Gathering key inputs',
+      subtitle: {
+        incomplete: 'Pending',
+        in_progress: 'Loading syllabus configuration...',
+        completed: 'Completed',
+        failed: 'Failed to load configuration',
+      },
+      status: 'incomplete',
+    },
+    {
+      id: 2,
+      title: 'Shaping the narrative',
+      subtitle: {
+        incomplete: 'Pending',
+        in_progress: 'Generating questions using Gemini AI...',
+        completed: 'Completed',
+        failed: 'AI generation failed',
+      },
+      status: 'incomplete',
+    },
+    {
+      id: 3,
+      title: 'Fine-tuning the focus',
+      subtitle: {
+        incomplete: 'Pending',
+        in_progress: 'Validating response structure...',
+        completed: 'Completed',
+        failed: 'Validation failed',
+      },
+      status: 'incomplete',
+    },
+    {
+      id: 4,
+      title: 'Adding the finishing touches',
+      subtitle: {
+        incomplete: 'Pending',
+        in_progress: 'Saving questions securely...',
+        completed: 'Completed',
+        failed: 'Failed to save questions',
+      },
+      status: 'incomplete',
+    },
+  ]);
 
   useEffect(() => {
     fetchSlots();
@@ -46,81 +111,92 @@ export default function ScheduleDialog({ job, userId, istNow, onClose, onSaved }
     setError('');
     
     try {
-      // 1. Fetch Session Windows for this position
-      const { data: windowsData, error: winErr } = await supabase
-        .from('session_windows')
-        .select('*')
-        .eq('position_name', job.position_name);
-
-      if (winErr) throw winErr;
-      if (!windowsData || windowsData.length === 0) {
+      if (!job.viva_id) {
         setLoading(false);
-        setError('No session windows configured for this position yet.');
+        setError('This session is not linked to a viva event.');
         return;
       }
 
-      // 2. Fetch all jobs with this position name to find common schedules
+      // 1. Fetch the specific viva details from the vivas table
+      const { data: vivaData, error: vivaErr } = await supabase
+        .from('vivas')
+        .select('*')
+        .eq('id', job.viva_id)
+        .single();
+
+      if (vivaErr) throw vivaErr;
+      if (!vivaData || !vivaData.start_date_and_time || !vivaData.end_date_and_time) {
+        setLoading(false);
+        setError('No schedule window configured for this viva event yet.');
+        return;
+      }
+
+      // 2. Fetch all jobs with this viva_id to find common schedules and calculate capacity
       const { data: relatedJobs, error: jobsErr } = await supabase
         .from('jobs')
         .select('id')
-        .eq('position_name', job.position_name);
+        .eq('viva_id', job.viva_id);
         
       if (jobsErr) throw jobsErr;
-      const jobIds = relatedJobs?.map(j => j.id) || [job.id];
-      if (!jobIds.includes(job.id)) jobIds.push(job.id);
+      const jobIds = relatedJobs?.map(j => j.id) || [];
+      if (job.id && !job.id.startsWith('placeholder_') && !jobIds.includes(job.id)) {
+        jobIds.push(job.id);
+      }
+
+      // Filter out any placeholder IDs to avoid Postgres type check issues with UUID column
+      const validJobIds = jobIds.filter(id => id && !id.startsWith('placeholder_'));
 
       // 3. Fetch schedules to calculate capacity
-      const { data: schedulesData, error: schedulesErr } = await supabase
-        .from('schedules')
-        .select('scheduled_date, scheduled_start_time')
-        .in('job_id', jobIds);
+      let schedulesData: any[] = [];
+      if (validJobIds.length > 0) {
+        const { data: scheds, error: schedulesErr } = await supabase
+          .from('schedules')
+          .select('scheduled_date, scheduled_start_time')
+          .in('job_id', validJobIds);
 
-      if (schedulesErr) throw schedulesErr;
+        if (schedulesErr) throw schedulesErr;
+        if (scheds) schedulesData = scheds;
+      }
 
       const bookingsCount: Record<string, number> = {};
       schedulesData?.forEach(s => {
-        // e.g. "2024-05-10_14:30"
         const timePrefix = s.scheduled_start_time.slice(0, 5); 
         const key = `${s.scheduled_date}_${timePrefix}`;
         bookingsCount[key] = (bookingsCount[key] || 0) + 1;
       });
 
-      // 4. Generate Slots
+      // 4. Generate Slots from the viva's start and end date/time
       let generatedSlots: TimeSlot[] = [];
 
-      windowsData.forEach((win: SessionWindow) => {
-        const winStart = new Date(win.start_datetime);
-        const winEnd = new Date(win.end_datetime);
+      const winStart = new Date(vivaData.start_date_and_time);
+      const winEnd = new Date(vivaData.end_date_and_time);
 
-        let currentSlotStart = new Date(winStart);
+      let currentSlotStart = new Date(winStart);
 
-        while (currentSlotStart < winEnd) {
-          const slotEnd = new Date(currentSlotStart.getTime() + job.duration * 60000);
-          if (slotEnd > winEnd) break;
+      while (currentSlotStart < winEnd) {
+        const slotEnd = new Date(currentSlotStart.getTime() + job.duration * 60000);
+        if (slotEnd > winEnd) break;
 
-          // Assumes Dates are evaluated in the browser's local time, but we fetched IST from api
-          // This ensures timezone logic consistency for simple YYYY-MM-DD
-          const dateStr = formatDate(currentSlotStart);
-          const timeStr = currentSlotStart.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false });
-          const endTimeStr = slotEnd.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false });
+        const dateStr = formatDate(currentSlotStart);
+        const timeStr = currentSlotStart.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false });
+        const endTimeStr = slotEnd.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false });
 
-          const key = `${dateStr}_${timeStr}`;
-          const booked = bookingsCount[key] || 0;
-          
-          if (currentSlotStart > istNow) {
-            generatedSlots.push({
-              date: dateStr,
-              time: timeStr,
-              startDatetime: new Date(currentSlotStart),
-              endDatetime: new Date(slotEnd),
-              endTimeString: endTimeStr,
-              remaining: Math.max(0, 4 - booked)
-            });
-          }
-
-          currentSlotStart = new Date(currentSlotStart.getTime() + job.duration * 60000);
+        const key = `${dateStr}_${timeStr}`;
+        const booked = bookingsCount[key] || 0;
+        
+        if (currentSlotStart > istNow) {
+          generatedSlots.push({
+            date: dateStr,
+            time: timeStr,
+            startDatetime: new Date(currentSlotStart),
+            endDatetime: new Date(slotEnd),
+            endTimeString: endTimeStr,
+            remaining: Math.max(0, 4 - booked)
+          });
         }
-      });
+
+        currentSlotStart = new Date(currentSlotStart.getTime() + job.duration * 60000);
+      }
 
       // Sort slots by time
       generatedSlots.sort((a, b) => a.startDatetime.getTime() - b.startDatetime.getTime());
@@ -152,29 +228,60 @@ export default function ScheduleDialog({ job, userId, istNow, onClose, onSaved }
     if (!slotObj) return;
 
     setSaving(true);
+    setSavingStatus('Saving schedule...');
     setError('');
 
     try {
       const scheduledEndTime = `${slotObj.endTimeString}:00`;
       const scheduledStartTime = `${slotObj.time}:00`;
 
-      if (job.schedule) {
-        const { error: updateError } = await supabase
-          .from('schedules')
-          .update({
-            scheduled_date: selectedDate,
-            scheduled_start_time: scheduledStartTime,
-            scheduled_end_time: scheduledEndTime,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', job.schedule.id);
+      let activeJobId = job.id;
+      let activeJdSummary = job.jd_summary;
+      let activePositionName = job.position_name;
+      let activeNoOfQuestions = job.no_of_questions;
 
-        if (updateError) throw updateError;
-      } else {
+      if (job.id.startsWith('placeholder_')) {
+        setSavingStatus('Creating job...');
+        const { data: newJob, error: jobErr } = await supabase
+          .from('jobs')
+          .insert({
+            user_id: userId,
+            position_name: job.position_name,
+            duration: job.duration,
+            level: job.level || 'Intermediate',
+            jd_summary: job.jd_summary || '',
+            viva_id: job.viva_id,
+            no_of_questions: job.no_of_questions || '10',
+          })
+          .select()
+          .single();
+
+        if (jobErr) throw jobErr;
+        if (!newJob) throw new Error('Failed to create job');
+
+        activeJobId = newJob.id;
+        activeJdSummary = newJob.jd_summary;
+        activePositionName = newJob.position_name;
+        activeNoOfQuestions = newJob.no_of_questions;
+
+        setSavingStatus('Creating session...');
+        const { error: sessionErr } = await supabase
+          .from('sessions')
+          .insert({
+            job_id: activeJobId,
+            user_id: userId,
+            has_video_insights: true,
+          });
+
+        if (sessionErr) throw sessionErr;
+      }
+
+      setSavingStatus('Saving schedule...');
+      if (job.id.startsWith('placeholder_')) {
         const { error: insertError } = await supabase
           .from('schedules')
           .insert({
-            job_id: job.id,
+            job_id: activeJobId,
             user_id: userId,
             scheduled_date: selectedDate,
             scheduled_start_time: scheduledStartTime,
@@ -182,12 +289,70 @@ export default function ScheduleDialog({ job, userId, istNow, onClose, onSaved }
           });
 
         if (insertError) throw insertError;
+      } else {
+        if (job.schedule) {
+          const { error: updateError } = await supabase
+            .from('schedules')
+            .update({
+              scheduled_date: selectedDate,
+              scheduled_start_time: scheduledStartTime,
+              scheduled_end_time: scheduledEndTime,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', job.schedule.id);
+
+          if (updateError) throw updateError;
+        } else {
+          const { error: insertError } = await supabase
+            .from('schedules')
+            .insert({
+              job_id: activeJobId,
+              user_id: userId,
+              scheduled_date: selectedDate,
+              scheduled_start_time: scheduledStartTime,
+              scheduled_end_time: scheduledEndTime,
+            });
+
+          if (insertError) throw insertError;
+        }
       }
+
+      // Open the cool progress dialog for question generation
+      setIsProgressOpen(true);
+      
+      const handleStageChange = (stageId: number, status: 'incomplete' | 'in_progress' | 'completed' | 'failed') => {
+        setStages(prev => {
+          const next = prev.map(s => s.id === stageId ? { ...s, status } : s);
+          // Calculate progress percentage
+          const completedCount = next.filter(s => s.status === 'completed').length;
+          const inProgressCount = next.filter(s => s.status === 'in_progress').length;
+          const percent = Math.min(100, completedCount * 20 + inProgressCount * 10);
+          setProgressPercent(percent);
+          return next;
+        });
+      };
+
+      try {
+        await generateAndStoreQuestions(
+          activeJobId,
+          activeJdSummary,
+          activeNoOfQuestions,
+          activePositionName,
+          handleStageChange
+        );
+      } catch (genErr) {
+        console.error('Failed to generate viva questions:', genErr);
+      }
+
+      // Wait a moment for the user to enjoy the finished loading state
+      await new Promise(resolve => setTimeout(resolve, 800));
+      setIsProgressOpen(false);
 
       onSaved();
     } catch (err: any) {
       setError(err.message || 'Failed to save schedule');
       setSaving(false);
+      setSavingStatus('');
     }
   };
 
@@ -283,7 +448,7 @@ export default function ScheduleDialog({ job, userId, istNow, onClose, onSaved }
 
               {selectedSlotObj && (
                 <div className="schedule-summary">
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="#1a73e8">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="hsl(var(--primary))">
                     <path d="M8 0a8 8 0 100 16A8 8 0 008 0zm0 14A6 6 0 118 2a6 6 0 010 12zm1-6.5V4.5a.75.75 0 00-1.5 0V8c0 .2.08.39.22.53l2 2a.75.75 0 001.06-1.06L9 7.94z" />
                   </svg>
                   <span>
@@ -306,7 +471,7 @@ export default function ScheduleDialog({ job, userId, istNow, onClose, onSaved }
             {saving ? (
               <span className="btn-loading">
                 <span className="spinner"></span>
-                Saving...
+                {savingStatus || 'Saving...'}
               </span>
             ) : (
               job.schedule ? 'Reschedule' : 'Confirm Schedule'
@@ -314,6 +479,13 @@ export default function ScheduleDialog({ job, userId, istNow, onClose, onSaved }
           </button>
         </div>
       </div>
+
+      {/* Cool Progress Dialog for Gemini Viva Question Generation */}
+      <GenerationProgressDialog
+        isOpen={isProgressOpen}
+        stages={stages}
+        progressPercent={progressPercent}
+      />
     </div>
   );
 }

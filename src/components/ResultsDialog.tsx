@@ -109,10 +109,10 @@ export default function ResultsDialog({ job, onClose }: ResultsDialogProps) {
               <div className="results-score-card">
                 <div className="score-circle">
                   <svg viewBox="0 0 120 120">
-                    <circle cx="60" cy="60" r="52" fill="none" stroke="#e8eaed" strokeWidth="8" />
+                    <circle cx="60" cy="60" r="52" fill="none" stroke="hsl(var(--border))" strokeWidth="8" />
                     <circle
                       cx="60" cy="60" r="52" fill="none"
-                      stroke={data.report.score >= 70 ? '#34a853' : data.report.score >= 40 ? '#fbbc04' : '#ea4335'}
+                      stroke={data.report.score >= 70 ? 'hsl(var(--success))' : data.report.score >= 40 ? 'hsl(45 90% 48%)' : 'hsl(var(--destructive))'}
                       strokeWidth="8" strokeLinecap="round"
                       strokeDasharray={`${(data.report.score / 100) * 327} 327`}
                       transform="rotate(-90 60 60)"
@@ -141,7 +141,7 @@ export default function ResultsDialog({ job, onClose }: ResultsDialogProps) {
                       <ul>
                         {data.executive.key_strengths.map((s, i) => (
                           <li key={i} className="strength-item">
-                            <svg width="16" height="16" viewBox="0 0 16 16" fill="#34a853">
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="hsl(var(--success))">
                               <path d="M8 0a8 8 0 100 16A8 8 0 008 0zm3.78 5.28l-4.5 5.5a.75.75 0 01-1.12.02l-2-2a.75.75 0 111.06-1.06l1.42 1.42 3.96-4.84a.75.75 0 011.18.96z" />
                             </svg>
                             {s}
@@ -157,7 +157,7 @@ export default function ResultsDialog({ job, onClose }: ResultsDialogProps) {
                       <ul>
                         {data.executive.areas_of_concern.map((c, i) => (
                           <li key={i} className="concern-item">
-                            <svg width="16" height="16" viewBox="0 0 16 16" fill="#ea4335">
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="hsl(var(--destructive))">
                               <path d="M8 0a8 8 0 100 16A8 8 0 008 0zm0 12a.75.75 0 110-1.5.75.75 0 010 1.5zm.75-3.5a.75.75 0 01-1.5 0V5a.75.75 0 011.5 0v3.5z" />
                             </svg>
                             {c}
@@ -194,7 +194,7 @@ export default function ResultsDialog({ job, onClose }: ResultsDialogProps) {
                                 className="score-bar-fill"
                                 style={{
                                   width: `${c.score.score}%`,
-                                  backgroundColor: c.score.score >= 70 ? '#34a853' : c.score.score >= 40 ? '#fbbc04' : '#ea4335',
+                                  backgroundColor: c.score.score >= 70 ? 'hsl(var(--success))' : c.score.score >= 40 ? 'hsl(45 90% 48%)' : 'hsl(var(--destructive))',
                                 }}
                               />
                             </div>

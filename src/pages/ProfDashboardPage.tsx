@@ -2,6 +2,9 @@ import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient';
 import { evaluateStudent, getStoredEvaluation } from '../lib/vivaEvaluation';
+import ThemeToggle from '../components/ThemeToggle';
+import type { Job } from '../types';
+
 
 interface StudentRow {
   userId: string;
@@ -36,42 +39,96 @@ export default function ProfDashboardPage() {
   const fetchStudents = useCallback(async () => {
     setLoading(true);
 
-    // 1. Get jobs with position_name
+    // 1. Get the viva matching the name
+    const { data: vivas, error: vivasError } = await supabase
+      .from('vivas')
+      .select('*')
+      .eq('name', profInfo.title);
+
+    if (vivasError || !vivas || vivas.length === 0) {
+      console.error('Error fetching vivas:', vivasError);
+      setStudents([]);
+      setLoading(false);
+      return;
+    }
+
+    // 2. Get unique user IDs and viva IDs
+    const studentIds = [...new Set(vivas.flatMap(v => v.assigned_student_ids || []))];
+    const vivaIds = vivas.map(v => v.id);
+
+    // 3. Fetch user details from users_login
+    const { data: users, error: usersError } = await supabase
+      .from('users_login')
+      .select('id, name, email_id')
+      .in('id', studentIds.length > 0 ? studentIds : ['none']);
+
+    if (usersError || !users) {
+      console.error('Error fetching users:', usersError);
+      setStudents([]);
+      setLoading(false);
+      return;
+    }
+
+    const userMap = new Map(users.map((u: { id: string; name: string; email_id: string }) => [u.id, u]));
+
+    // 4. Fetch existing job records for these vivas and students
     const { data: jobs, error: jobsError } = await supabase
       .from('jobs')
-      .select('id, user_id, position_name')
-      .eq('position_name', profInfo.title);
+      .select('*')
+      .in('viva_id', vivaIds.length > 0 ? vivaIds : ['none'])
+      .in('user_id', studentIds.length > 0 ? studentIds : ['none'])
+      .eq('is_deleted', false);
 
-    if (jobsError || !jobs || jobs.length === 0) {
+    if (jobsError) {
       console.error('Error fetching jobs:', jobsError);
       setStudents([]);
       setLoading(false);
       return;
     }
 
-    // 2. Get unique user IDs
-    const userIds = [...new Set(jobs.map((j: { user_id: string }) => j.user_id))];
+    const jobsMap = new Map<string, Job>();
+    jobs?.forEach((j: Job) => {
+      if (j.viva_id) {
+        jobsMap.set(`${j.viva_id}_${j.user_id}`, j);
+      }
+    });
 
-    // 3. Fetch user details
-    const { data: users } = await supabase
-      .from('users')
-      .select('id, name, email')
-      .in('id', userIds);
+    // 5. Ensure every assigned student has a job record (auto-create if missing)
+    const finalJobsList: Job[] = [];
+    for (const viva of vivas) {
+      for (const studentId of viva.assigned_student_ids || []) {
+        let job = jobsMap.get(`${viva.id}_${studentId}`);
+        if (!job) {
+          // Auto-create missing job
+          const { data: newJob, error: insertError } = await supabase
+            .from('jobs')
+            .insert({
+              user_id: studentId,
+              position_name: viva.name,
+              duration: parseInt(viva.duration) || 30,
+              level: 'Intermediate',
+              jd_summary: viva.jd_summary || '',
+              viva_id: viva.id,
+            })
+            .select()
+            .single();
 
-    if (!users) {
-      setStudents([]);
-      setLoading(false);
-      return;
+          if (insertError) {
+            console.error(`Error auto-creating job for viva ${viva.id} and user ${studentId}:`, insertError);
+            continue;
+          }
+          job = newJob as Job;
+        }
+        finalJobsList.push(job);
+      }
     }
 
-    const userMap = new Map(users.map((u: { id: string; name: string; email: string }) => [u.id, u]));
-
-    // 4. Fetch existing evaluations
-    const jobIds = jobs.map((j: { id: string }) => j.id);
+    // 6. Fetch existing evaluations for the job IDs
+    const jobIds = finalJobsList.map(j => j.id);
     const { data: evals } = await supabase
       .from('viva_evaluations')
       .select('job_id, user_id, ai_marks, final_marks')
-      .in('job_id', jobIds);
+      .in('job_id', jobIds.length > 0 ? jobIds : ['none']);
 
     const evalMap = new Map(
       (evals || []).map((e: { job_id: string; user_id: string; ai_marks: number | null; final_marks: number | null }) =>
@@ -79,16 +136,16 @@ export default function ProfDashboardPage() {
       )
     );
 
-    // 5. Build student rows
-    const rows: StudentRow[] = jobs.map((job: { id: string; user_id: string; position_name: string }) => {
-      const user = userMap.get(job.user_id) as { id: string; name: string; email: string } | undefined;
-      const evalData = evalMap.get(`${job.id}_${job.user_id}`) as { ai_marks: number | null; final_marks: number | null } | undefined;
+    // 7. Build student rows
+    const rows: StudentRow[] = finalJobsList.map((job: Job) => {
+      const user = userMap.get(job.user_id);
+      const evalData = evalMap.get(`${job.id}_${job.user_id}`);
 
       return {
         userId: job.user_id,
         jobId: job.id,
         name: user?.name || 'Unknown',
-        email: user?.email || 'N/A',
+        email: user?.email_id || 'N/A',
         positionName: job.position_name,
         aiMarks: evalData?.ai_marks ?? null,
         finalMarks: evalData?.final_marks ?? null,
@@ -147,8 +204,11 @@ export default function ProfDashboardPage() {
   };
 
   const handleLogout = () => {
-    localStorage.removeItem('prof_session');
-    navigate('/login');
+    const confirmLogout = window.confirm("Are you sure you want to sign out?");
+    if (confirmLogout) {
+      localStorage.removeItem('prof_session');
+      navigate('/login');
+    }
   };
 
   return (
@@ -156,14 +216,12 @@ export default function ProfDashboardPage() {
       <header className="dashboard-header">
         <div className="header-left">
           <div className="header-logo">
-            <svg width="32" height="32" viewBox="0 0 48 48" fill="none">
-              <rect width="48" height="48" rx="12" fill="#1a73e8" />
-              <path d="M14 24L22 32L34 16" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
+            <img src="/YudhaLogo.png" alt="Yudha Logo" width="32" height="32" style={{ borderRadius: '8px', objectFit: 'contain' }} />
           </div>
           <h1 className="header-title">Yudha Vivas — Professor Dashboard</h1>
         </div>
         <div className="header-right">
+          <ThemeToggle />
           <div className="user-info">
             <div className="user-avatar">{profInfo.initial}</div>
             <span className="user-name">{profInfo.name}</span>
@@ -192,11 +250,11 @@ export default function ProfDashboardPage() {
         ) : students.length === 0 ? (
           <div className="empty-state">
             <svg width="64" height="64" viewBox="0 0 64 64" fill="none" opacity="0.4">
-              <rect x="8" y="12" width="48" height="40" rx="4" stroke="#1a73e8" strokeWidth="2" />
-              <line x1="8" y1="24" x2="56" y2="24" stroke="#1a73e8" strokeWidth="2" />
-              <circle cx="16" cy="18" r="2" fill="#1a73e8" />
-              <circle cx="24" cy="18" r="2" fill="#1a73e8" />
-              <circle cx="32" cy="18" r="2" fill="#1a73e8" />
+              <rect x="8" y="12" width="48" height="40" rx="6" stroke="hsl(var(--primary))" strokeWidth="2" />
+              <line x1="8" y1="24" x2="56" y2="24" stroke="hsl(var(--primary))" strokeWidth="2" />
+              <circle cx="16" cy="18" r="2" fill="hsl(var(--primary))" />
+              <circle cx="24" cy="18" r="2" fill="hsl(var(--primary))" />
+              <circle cx="32" cy="18" r="2" fill="hsl(var(--primary))" />
             </svg>
             <p>No students found for {profInfo.title}</p>
           </div>

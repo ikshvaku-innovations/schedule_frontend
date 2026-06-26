@@ -5,6 +5,8 @@ import { supabase } from '../lib/supabaseClient';
 import type { Job, Schedule, Session, JobWithSchedule, JobStatus } from '../types';
 import ScheduleDialog from '../components/ScheduleDialog';
 import ResultsDialog from '../components/ResultsDialog';
+import ThemeToggle from '../components/ThemeToggle';
+
 
 async function getISTNow(): Promise<Date> {
   try {
@@ -16,17 +18,27 @@ async function getISTNow(): Promise<Date> {
   }
 }
 
-function computeStatus(job: Job, schedule: Schedule | null, now: Date): JobStatus {
+function computeStatus(job: Job, schedule: Schedule | null, now: Date, vivaEndDateTimeStr?: string | null): JobStatus {
   if (job.completed) return 'completed';
+
+  // If the overall viva deadline has passed, and job is not completed, then it's expired
+  if (vivaEndDateTimeStr) {
+    const vivaEnd = new Date(vivaEndDateTimeStr);
+    if (now > vivaEnd) {
+      return 'expired';
+    }
+  }
+
   if (!schedule) return 'not_scheduled';
 
   const dateStr = schedule.scheduled_date;
   const startParts = schedule.scheduled_start_time.split(':');
-  const endParts = schedule.scheduled_end_time.split(':');
 
   // In JS, appending +05:30 to ISO string parses it as IST
   const start = new Date(`${dateStr}T${startParts[0]}:${startParts[1]}:00+05:30`);
-  const end = new Date(`${dateStr}T${endParts[0]}:${endParts[1]}:00+05:30`);
+  
+  // Calculate end time by adding job.duration minutes to start time
+  const end = new Date(start.getTime() + (job.duration * 60 * 1000));
 
   if (now >= start && now <= end) return 'active';
   if (now > end) return 'expired';
@@ -58,45 +70,117 @@ export default function DashboardPage() {
     const now = await getISTNow();
     setIstNow(now);
 
-    const { data: jobsData, error: jobsError } = await supabase
-      .from('jobs')
+    // 1. Fetch assigned vivas from vivas table where assigned_student_ids contains user.id
+    const { data: vivasData, error: vivasError } = await supabase
+      .from('vivas')
       .select('*')
-      .eq('user_id', user.id)
-      .eq('is_deleted', false)
-      .order('created_at', { ascending: false });
+      .contains('assigned_student_ids', [user.id]);
 
-    if (jobsError || !jobsData) {
-      console.error('Error fetching jobs:', jobsError);
+    if (vivasError || !vivasData) {
+      console.error('Error fetching vivas:', vivasError);
       setLoading(false);
       return;
     }
 
-    const jobIds = jobsData.map((j: Job) => j.id);
+    const assignedVivaIds = vivasData.map((v: any) => v.id);
 
-    const { data: schedulesData } = await supabase
-      .from('schedules')
-      .select('*')
-      .eq('user_id', user.id)
-      .in('job_id', jobIds.length > 0 ? jobIds : ['none']);
+    // 2. Fetch jobs for the user matching these viva IDs
+    let existingJobsData: Job[] = [];
+    if (assignedVivaIds.length > 0) {
+      const { data: fetchedJobs, error: jobsError } = await supabase
+        .from('jobs')
+        .select('*')
+        .eq('user_id', user.id)
+        .in('viva_id', assignedVivaIds)
+        .eq('is_deleted', false);
 
-    const { data: sessionsData } = await supabase
-      .from('sessions')
-      .select('*')
-      .eq('user_id', user.id)
-      .in('job_id', jobIds.length > 0 ? jobIds : ['none']);
+      if (jobsError) {
+        console.error('Error fetching jobs:', jobsError);
+        setLoading(false);
+        return;
+      }
+      if (fetchedJobs) existingJobsData = fetchedJobs;
+    }
+
+    const jobsMap = new Map<string, Job>();
+    existingJobsData.forEach((j: Job) => {
+      if (j.viva_id) {
+        jobsMap.set(j.viva_id, j);
+      }
+    });
+
+    // 3. For any assigned viva that does not have a job record, create a virtual placeholder job object
+    const jobsList: Job[] = [];
+    for (const viva of vivasData) {
+      let job = jobsMap.get(viva.id);
+      if (!job) {
+        // Use a placeholder job representation
+        job = {
+          id: `placeholder_${viva.id}`,
+          user_id: user.id,
+          position_name: viva.name,
+          duration: parseInt(viva.duration) || 30,
+          level: 'Intermediate',
+          created_at: viva.created_at || new Date().toISOString(),
+          updated_at: viva.updated_at || new Date().toISOString(),
+          is_deleted: false,
+          completed: false,
+          jd_summary: viva.jd_summary || '',
+          is_hr_interview: false,
+          has_video_insights: false,
+          no_of_questions: '10',
+          viva_id: viva.id,
+        };
+      }
+      jobsList.push(job);
+    }
+
+    const jobIds = jobsList.map((j: Job) => j.id);
+    const validJobIds = jobIds.filter(id => id && !id.startsWith('placeholder_'));
+
+    // 4. Fetch schedules & sessions
+    let schedulesData: Schedule[] = [];
+    let sessionsData: Session[] = [];
+
+    if (validJobIds.length > 0) {
+      const { data: scheds } = await supabase
+        .from('schedules')
+        .select('*')
+        .eq('user_id', user.id)
+        .in('job_id', validJobIds);
+      if (scheds) schedulesData = scheds;
+
+      const { data: sess } = await supabase
+        .from('sessions')
+        .select('*')
+        .eq('user_id', user.id)
+        .in('job_id', validJobIds);
+      if (sess) sessionsData = sess;
+    }
 
     const scheduleMap = new Map<string, Schedule>();
-    (schedulesData || []).forEach((s: Schedule) => scheduleMap.set(s.job_id, s));
+    schedulesData.forEach((s: Schedule) => scheduleMap.set(s.job_id, s));
 
     const sessionMap = new Map<string, string>();
-    (sessionsData || []).forEach((s: Session) => sessionMap.set(s.job_id, s.id));
+    sessionsData.forEach((s: Session) => sessionMap.set(s.job_id, s.id));
 
-    const enriched: JobWithSchedule[] = jobsData.map((job: Job) => {
-      const schedule = scheduleMap.get(job.id) || null;
-      const status = computeStatus(job, schedule, now);
-      const session_id = sessionMap.get(job.id) || null;
-      return { ...job, schedule, status, session_id };
+    const enriched: JobWithSchedule[] = jobsList.map((job: Job) => {
+      const isPlaceholder = job.id.startsWith('placeholder_');
+      const schedule = isPlaceholder ? null : (scheduleMap.get(job.id) || null);
+      const viva = vivasData.find((v: any) => v.id === job.viva_id);
+      const status = computeStatus(job, schedule, now, viva?.end_date_and_time);
+      const session_id = isPlaceholder ? null : (sessionMap.get(job.id) || null);
+      return {
+        ...job,
+        schedule,
+        status,
+        session_id,
+        viva_end_date_and_time: viva?.end_date_and_time || null
+      };
     });
+
+    // Sort by created_at descending
+    enriched.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
     setJobs(enriched);
     setLoading(false);
@@ -107,10 +191,38 @@ export default function DashboardPage() {
   }, [fetchJobs]);
 
   const handleAttend = async (job: JobWithSchedule) => {
-    if (!job.schedule) return;
-
     const now = await getISTNow();
-    const status = computeStatus(job, job.schedule, now);
+    const status = computeStatus(job, job.schedule, now, job.viva_end_date_and_time);
+
+    if (status === 'expired') {
+      if (job.schedule) {
+        const dateFormated = new Date(job.schedule.scheduled_date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+        setInfoDialog({
+          title: 'Session Expired',
+          message: (
+            <>
+              The scheduled time for this session (<strong>{dateFormated}</strong> at <strong>{job.schedule.scheduled_start_time.slice(0, 5)}</strong>) has passed.
+              <br /><br />
+              Please contact your professor.
+            </>
+          )
+        });
+      } else {
+        setInfoDialog({
+          title: 'Session Expired',
+          message: (
+            <>
+              The deadline for this viva event has passed and you did not schedule or attempt it.
+              <br /><br />
+              Please contact your professor.
+            </>
+          )
+        });
+      }
+      return;
+    }
+
+    if (!job.schedule) return;
 
     if (status === 'scheduled') {
       const dateFormated = new Date(job.schedule.scheduled_date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
@@ -127,32 +239,20 @@ export default function DashboardPage() {
       return;
     }
 
-    if (status === 'expired') {
-      const dateFormated = new Date(job.schedule.scheduled_date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-      setInfoDialog({
-        title: 'Session Expired',
-        message: (
-          <>
-            The scheduled time for this session (<strong>{dateFormated}</strong> at <strong>{job.schedule.scheduled_start_time.slice(0, 5)}</strong>) has passed.
-            <br /><br />
-            Please contact your professor.
-          </>
-        )
-      });
-      return;
-    }
-
     if (job.session_id) {
       window.open(
-        `https://victorious-rock-016b1e91e.2.azurestaticapps.net/?session=${job.session_id}`,
+        `https://interview.shauryalabs.in/?session=${job.session_id}`,
         '_blank'
       );
     }
   };
 
   const handleLogout = () => {
-    logout();
-    navigate('/login');
+    const confirmLogout = window.confirm("Are you sure you want to sign out?");
+    if (confirmLogout) {
+      logout();
+      navigate('/login');
+    }
   };
 
   if (!user) {
@@ -165,14 +265,12 @@ export default function DashboardPage() {
       <header className="dashboard-header">
         <div className="header-left">
           <div className="header-logo">
-            <svg width="32" height="32" viewBox="0 0 48 48" fill="none">
-              <rect width="48" height="48" rx="12" fill="#1a73e8" />
-              <path d="M14 24L22 32L34 16" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
+            <img src="/YudhaLogo.png" alt="Yudha Logo" width="32" height="32" style={{ borderRadius: '8px', objectFit: 'contain' }} />
           </div>
           <h1 className="header-title">Yudha Vivas</h1>
         </div>
         <div className="header-right">
+          <ThemeToggle />
           <div className="user-info">
             <div className="user-avatar">
               {user.name.charAt(0).toUpperCase()}
@@ -180,7 +278,7 @@ export default function DashboardPage() {
             <span className="user-name">{user.name}</span>
           </div>
           <button className="btn-outline" onClick={handleLogout}>
-            Sign out
+             Sign out
           </button>
         </div>
       </header>
@@ -203,11 +301,11 @@ export default function DashboardPage() {
         ) : jobs.length === 0 ? (
           <div className="empty-state">
             <svg width="64" height="64" viewBox="0 0 64 64" fill="none" opacity="0.4">
-              <rect x="8" y="12" width="48" height="40" rx="4" stroke="#1a73e8" strokeWidth="2" />
-              <line x1="8" y1="24" x2="56" y2="24" stroke="#1a73e8" strokeWidth="2" />
-              <circle cx="16" cy="18" r="2" fill="#1a73e8" />
-              <circle cx="24" cy="18" r="2" fill="#1a73e8" />
-              <circle cx="32" cy="18" r="2" fill="#1a73e8" />
+              <rect x="8" y="12" width="48" height="40" rx="6" stroke="hsl(var(--primary))" strokeWidth="2" />
+              <line x1="8" y1="24" x2="56" y2="24" stroke="hsl(var(--primary))" strokeWidth="2" />
+              <circle cx="16" cy="18" r="2" fill="hsl(var(--primary))" />
+              <circle cx="24" cy="18" r="2" fill="hsl(var(--primary))" />
+              <circle cx="32" cy="18" r="2" fill="hsl(var(--primary))" />
             </svg>
             <p>No sessions found</p>
           </div>
@@ -263,10 +361,11 @@ export default function DashboardPage() {
                               Schedule
                             </button>
                           )}
-                          {(job.status === 'scheduled' || job.status === 'expired') && (
+                          {(job.status === 'scheduled' || (job.status === 'expired' && job.schedule)) && (
                             <button
                               className="btn-action btn-reschedule"
                               onClick={() => setScheduleDialogJob(job)}
+                              disabled={job.viva_end_date_and_time ? new Date(istNow) > new Date(job.viva_end_date_and_time) : false}
                             >
                               Reschedule
                             </button>
@@ -330,7 +429,7 @@ export default function DashboardPage() {
               </button>
             </div>
             <div className="dialog-body">
-              <p style={{ lineHeight: '1.6', color: '#4b5563', fontSize: '15px' }}>
+              <p style={{ lineHeight: '1.6', color: 'hsl(var(--foreground) / 0.85)', fontSize: '15px' }}>
                 {infoDialog.message}
               </p>
             </div>
